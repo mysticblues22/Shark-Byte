@@ -17,13 +17,6 @@ import {
 import { createTicket, TicketMinecraftDetails, TicketVPSDetails } from "../services/ticketService";
 
 export async function handlePricingSelectMenu(interaction: StringSelectMenuInteraction): Promise<void> {
-  /*
-   * Acknowledge immediately before any asynchronous work.
-   */
-  await interaction.deferReply({
-    flags: 64,
-  });
-
   const customId = interaction.customId;
   const selectedPlanId = interaction.values[0];
 
@@ -41,7 +34,10 @@ export async function handlePricingSelectMenu(interaction: StringSelectMenuInter
       await interaction.message.edit({ embeds: panel.embeds, components: panel.components }).catch(() => {});
     }
   }
-try {
+
+  await interaction.deferReply({ flags: 64 });
+
+  try {
     const plan = await getPricingPlanByIdOrName(selectedPlanId);
     if (!plan) {
       await interaction.editReply({ content: "❌ Selected pricing plan was not found." });

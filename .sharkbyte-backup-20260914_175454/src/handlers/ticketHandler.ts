@@ -139,11 +139,7 @@ export async function handleTicketButton(interaction: ButtonInteraction): Promis
       }
 
       const ticketId = ticketIdMatch[1];
-      await showOsSelectionScreen(
-        interaction,
-        ticketId,
-        true,
-      );
+      await showOsSelectionScreen(interaction, ticketId);
     } catch (err: any) {
       console.error("❌ Manual VPS Provision Wizard Launch Error:", err);
       await logBotError({

@@ -306,56 +306,15 @@ export async function handlePaymentButton(interaction: ButtonInteraction): Promi
     const parts = customId.split(":");
     const ticketId = parts[1];
 
-    console.log(
-      `🚀 [Claim VPS] Button clicked by ${interaction.user.tag} for ticket ${ticketId}`,
-    );
+    console.log(`🚀 [Claim VPS] Button clicked by ${interaction.user.tag} for ticket ${ticketId}`);
 
     try {
-      /*
-       * IMPORTANT:
-       *
-       * Do NOT call deferUpdate(), update(), or reply() here before
-       * opening the wizard.
-       *
-       * The Claim VPS interaction is used as the NEW ephemeral wizard
-       * response. showOsSelectionScreen(..., true) performs the single
-       * deferReply() required for this interaction.
-       *
-       * We can edit the original ticket message directly without
-       * acknowledging the interaction. This removes Claim VPS immediately
-       * while preserving the other ticket controls.
-       */
-      if (interaction.message) {
-        const remainingComponents =
-          interaction.message.components.filter((row) => {
-            if (!("components" in row)) {
-              return true;
-            }
-
-            return !row.components.some(
-              (component) =>
-                "customId" in component &&
-                component.customId === `claim_vps_btn:${ticketId}`,
-            );
-          });
-
-        await interaction.message.edit({
-          components: remainingComponents,
-        });
-      }
-
-      // This is the ONLY acknowledgement of the Claim VPS interaction.
-      await showOsSelectionScreen(
-        interaction,
-        ticketId,
-        true,
-      );
+      await showOsSelectionScreen(interaction, ticketId);
     } catch (err: any) {
       console.error("❌ VPS Claim OS Wizard Error:", err);
-
       await logBotError({
         client: interaction.client,
-        guild: interaction.guild || undefined,
+        guild: interaction.guild!,
         error: err,
         title: "Customer VPS Claim Wizard Error",
         context: "claim_vps_btn",
@@ -364,28 +323,12 @@ export async function handlePaymentButton(interaction: ButtonInteraction): Promi
         channelId: interaction.channelId || undefined,
       }).catch(() => {});
 
-      /*
-       * If the wizard already acknowledged the interaction, report through
-       * the existing response. If the interaction itself is already dead,
-       * silently stop rather than creating another Discord API error.
-       */
       if (interaction.replied || interaction.deferred) {
-        await interaction
-          .followUp({
-            content: `❌ Error launching OS selection wizard: ${String(err?.message || "Unknown error").slice(0, 1500)}`,
-            flags: 64,
-          })
-          .catch(() => {});
+        await interaction.followUp({ content: `❌ Error launching OS selection wizard: ${err.message}`, flags: 64 });
       } else {
-        await interaction
-          .reply({
-            content: `❌ Error launching OS selection wizard: ${String(err?.message || "Unknown error").slice(0, 1500)}`,
-            flags: 64,
-          })
-          .catch(() => {});
+        await interaction.reply({ content: `❌ Error launching OS selection wizard: ${err.message}`, flags: 64 });
       }
     }
-
     return;
   }
 

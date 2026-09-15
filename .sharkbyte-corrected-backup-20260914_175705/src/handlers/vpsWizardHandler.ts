@@ -60,13 +60,16 @@ function safeMode(
 /**
  * Acknowledge an existing wizard interaction.
  *
- * Wizard navigation uses deferUpdate() because these interactions
+ * Wizard navigation uses deferUpdate() because those interactions
  * originate from the ephemeral wizard message itself.
  */
 async function acknowledgeUpdate(
   interaction: WizardInteraction,
 ): Promise<void> {
-  if (interaction.replied || interaction.deferred) {
+  if (
+    interaction.replied ||
+    interaction.deferred
+  ) {
     return;
   }
 
@@ -74,18 +77,20 @@ async function acknowledgeUpdate(
 }
 
 /**
- * Open the VPS wizard as a NEW ephemeral response.
+ * Open the VPS wizard as a NEW ephemeral reply.
  *
- * IMPORTANT:
- * The caller must NOT deferUpdate() first.
+ * This is intentionally separate from acknowledgeUpdate().
  *
- * Claim VPS and Retry VPS both use this interaction as the new ephemeral
- * wizard response.
+ * The original payment/order message containing "Claim VPS" must remain
+ * untouched.
  */
 async function acknowledgeNewWizard(
   interaction: ButtonInteraction,
 ): Promise<void> {
-  if (interaction.replied || interaction.deferred) {
+  if (
+    interaction.replied ||
+    interaction.deferred
+  ) {
     return;
   }
 
@@ -112,50 +117,40 @@ async function editAcknowledged(
   );
 }
 
-
-function memberIdFromInteraction(
-  interaction: WizardInteraction,
-): string {
-  return interaction.member &&
-    "user" in interaction.member &&
-    interaction.member.user
-    ? interaction.member.user.id
-    : interaction.user.id;
-}
-
 async function showWizardError(
   interaction: WizardInteraction,
   message: string,
 ): Promise<void> {
   const embed =
     new EmbedBuilder()
-      .setTitle("❌ Shark Byte VPS Wizard")
+      .setTitle(
+        "❌ Shark Byte VPS Wizard",
+      )
       .setColor(0xe74c3c)
       .setDescription(message)
       .setFooter({
-        text: "Shark Byte • VPS Provisioning Wizard",
+        text:
+          "Shark Byte • VPS Provisioning Wizard",
       })
       .setTimestamp();
 
   try {
-    if (interaction.deferred || interaction.replied) {
-      await interaction
-        .editReply({
-          content: "",
-          embeds: [embed],
-          components: [],
-        })
-        .catch(() => {});
-      return;
-    }
-
-    await interaction
-      .reply({
+    if (
+      interaction.deferred ||
+      interaction.replied
+    ) {
+      await interaction.editReply({
+        content: "",
+        embeds: [embed],
+        components: [],
+      });
+    } else {
+      await interaction.reply({
         embeds: [embed],
         components: [],
         flags: 64,
-      })
-      .catch(() => {});
+      });
+    }
   } catch (error) {
     console.error(
       "[Discord] Failed to display VPS wizard error:",
@@ -994,8 +989,7 @@ export async function handleConfirmProvision(
               ? "⚡ Nested"
               : "🖥️ Standard"
           }\n\n` +
-          `🔐 Your VPS credentials have been sent to your **Discord DMs**.\n\n` +
-          `The ticket will now be automatically closed.`,
+          `Your VPS credentials and connection details have been recorded in the order system.`,
         )
         .setFooter({
           text:
@@ -1015,133 +1009,6 @@ export async function handleConfirmProvision(
         );
       },
     );
-
-    /*
-     * The provisioning service only reaches this point after:
-     *
-     *   1. Infrastructure is ACTIVE.
-     *   2. The credentials DM was successfully delivered.
-     *
-     * The ticket can therefore safely be archived automatically.
-     *
-     * We perform the same transcript/DB/channel lifecycle used by the
-     * normal ticket-close flow, but without requiring another button click.
-     */
-    const ticketChannel =
-      interaction.channel as TextChannel | null;
-
-    if (ticketChannel && interaction.guild) {
-      try {
-        const ownerIdMatch =
-          ticketChannel.topic?.match(
-            /ticket-owner:(\d+)/,
-          );
-
-        const ticketNumberMatch =
-          ticketChannel.topic?.match(
-            /ticket-number:(\d+)/,
-          );
-
-        const ownerId =
-          ownerIdMatch?.[1] ||
-          memberIdFromInteraction(interaction);
-
-        const ticketNumber =
-          ticketNumberMatch?.[1] ||
-          "000000";
-
-        /*
-         * Mark the database ticket closed before deleting the channel.
-         * Import is intentionally lazy to avoid changing the existing
-         * handler dependency graph.
-         */
-        const {
-          closeDatabaseTicket,
-          getTicketById,
-        } = await import(
-          "../services/ticketDatabase"
-        );
-
-        const dbTicket =
-          await getTicketById(
-            ticketId,
-          ).catch(() => null);
-
-        /*
-         * Build a compact automatic-close notice. The credentials are
-         * deliberately NOT repeated here.
-         */
-        const closeNotice =
-          new EmbedBuilder()
-            .setTitle(
-              "🔒 VPS Ticket Automatically Closed",
-            )
-            .setColor(
-              0x2ecc71,
-            )
-            .setDescription(
-              `VPS **#${String(ticketNumber)}** has been provisioned successfully.\n\n` +
-              `🔐 Credentials were delivered privately by Discord DM.\n` +
-              `🟢 The VPS is now active.\n\n` +
-              `This ticket is being archived automatically.`,
-            )
-            .setTimestamp();
-
-        await ticketChannel.send({
-          embeds: [closeNotice],
-        }).catch(() => {});
-
-        await closeDatabaseTicket(
-          ticketId,
-          interaction.user.id,
-        ).catch((closeError) => {
-          console.error(
-            "[Discord] Failed to mark VPS ticket closed:",
-            closeError,
-          );
-        });
-
-        /*
-         * Give Discord a moment to persist the final ticket message,
-         * then delete the channel.
-         */
-        setTimeout(async () => {
-          await ticketChannel
-            .delete(
-              "VPS successfully provisioned; credentials delivered by DM",
-            )
-            .catch(() => {});
-        }, 5000);
-
-        void dbTicket;
-        void ownerId;
-      } catch (closeError) {
-        console.error(
-          "[Discord] Automatic VPS ticket closure failed:",
-          closeError,
-        );
-
-        await logBotError({
-          client:
-            interaction.client,
-          guild:
-            interaction.guild,
-          error:
-            closeError,
-          title:
-            "Automatic VPS Ticket Closure Error",
-          context:
-            "handleConfirmProvision:auto_close",
-          userTag:
-            interaction.user.tag,
-          userId:
-            interaction.user.id,
-          channelId:
-            interaction.channelId ||
-            undefined,
-        }).catch(() => {});
-      }
-    }
   } catch (error: any) {
     console.error(
       "[Discord] VPS provisioning error:",
@@ -1168,54 +1035,9 @@ export async function handleConfirmProvision(
         undefined,
     }).catch(() => {});
 
-    const retryEmbed =
-      new EmbedBuilder()
-        .setTitle(
-          "❌ VPS Provisioning Failed",
-        )
-        .setColor(
-          0xe74c3c,
-        )
-        .setDescription(
-          `The VPS could not be provisioned.\n\n` +
-          `**Reason:**\n` +
-          `\`${String(error?.message || "Unknown error").slice(0, 1500)}\`\n\n` +
-          `The failed VPS resources have been cleaned up where possible.\n\n` +
-          `You can retry the VPS provisioning below.`,
-        )
-        .setFooter({
-          text:
-            "Shark Byte • VPS Provisioning",
-        })
-        .setTimestamp();
-
-    const retryRow =
-      new ActionRowBuilder<ButtonBuilder>()
-        .addComponents(
-          new ButtonBuilder()
-            .setCustomId(
-              `vps:retry:${ticketId}`,
-            )
-            .setLabel(
-              "Retry VPS Provisioning",
-            )
-            .setEmoji("🔄")
-            .setStyle(
-              ButtonStyle.Primary,
-            ),
-        );
-
-    try {
-      await interaction.editReply({
-        content: "",
-        embeds: [retryEmbed],
-        components: [retryRow],
-      });
-    } catch (retryDisplayError) {
-      console.error(
-        "[Discord] Failed to display VPS retry control:",
-        retryDisplayError,
-      );
-    }
+    await showWizardError(
+      interaction,
+      `VPS provisioning failed.\n\n\`${String(error?.message || "Unknown error").slice(0, 1500)}\``,
+    );
   }
 }

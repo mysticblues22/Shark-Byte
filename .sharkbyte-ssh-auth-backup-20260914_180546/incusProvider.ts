@@ -778,7 +778,9 @@ export class IncusProvider
     containerName: string,
     password: string,
   ): Promise<void> {
-    assertSafeContainerName(containerName);
+    assertSafeContainerName(
+      containerName,
+    );
 
     if (!password) {
       throw new Error(
@@ -787,16 +789,18 @@ export class IncusProvider
     }
 
     /*
-     * Encode the complete passwd entry rather than only the password.
+     * IMPORTANT:
      *
-     * chpasswd expects:
+     * chpasswd requires:
      *
-     *   username:password
+     *     root:<password>
      *
-     * The previous implementation decoded only the password, which
-     * resulted in:
+     * rather than only:
      *
-     *   chpasswd: line 1: missing new password
+     *     <password>
+     *
+     * The complete credential string is base64 encoded so the
+     * plaintext password does not appear in the command string.
      */
     const encodedCredentials =
       Buffer.from(
@@ -804,122 +808,22 @@ export class IncusProvider
         "utf8",
       ).toString("base64");
 
-    /*
-     * The password is also encoded for the temporary SSH_ASKPASS
-     * authentication test below.
-     */
-    const encodedPassword =
-      Buffer.from(
-        password,
-        "utf8",
-      ).toString("base64");
-
-    /*
-     * Everything happens inside the VPS.
-     *
-     * 1. Install OpenSSH server.
-     * 2. Configure root/password authentication.
-     * 3. Set the root password.
-     * 4. Validate sshd configuration.
-     * 5. Start SSH.
-     * 6. Verify TCP/22.
-     * 7. Perform a REAL password authentication against
-     *    root@127.0.0.1 using OpenSSH itself.
-     *
-     * The actual password is never written to Shark Byte logs.
-     */
     const cmd =
       `incus exec ${containerName} -- sh -lc ` +
       `'set -eu; ` +
       `export DEBIAN_FRONTEND=noninteractive; ` +
-
-      /*
-       * SSH server installation.
-       */
       `apt-get update; ` +
       `apt-get install -y --no-install-recommends openssh-server; ` +
-
-      /*
-       * SSH runtime/configuration directories.
-       */
       `mkdir -p /run/sshd /etc/ssh/sshd_config.d; ` +
-
-      /*
-       * Explicit password/root configuration.
-       */
-      `printf "%s\\\\n" "PermitRootLogin yes" "PasswordAuthentication yes" "KbdInteractiveAuthentication no" > /etc/ssh/sshd_config.d/99-shark.conf; ` +
-
-      /*
-       * Ensure the drop-in directory is included.
-       */
-      `if ! grep -Eq "^Include[[:space:]]+/etc/ssh/sshd_config.d/\\\\*.conf" /etc/ssh/sshd_config; then ` +
+      `printf "%s\\\\n" "PermitRootLogin yes" "PasswordAuthentication yes" > /etc/ssh/sshd_config.d/99-shark.conf; ` +
+      `if ! grep -q "^Include /etc/ssh/sshd_config.d/\\\\*.conf" /etc/ssh/sshd_config; then ` +
       `printf "\\\\nInclude /etc/ssh/sshd_config.d/*.conf\\\\n" >> /etc/ssh/sshd_config; ` +
       `fi; ` +
-
-      /*
-       * Set root password.
-       */
       `printf "%s" ${encodedCredentials} | base64 -d | chpasswd; ` +
-
-      /*
-       * Validate configuration before restart.
-       */
       `sshd -t; ` +
-
-      /*
-       * Enable and restart SSH.
-       */
-      `(systemctl enable ssh || systemctl enable sshd); ` +
-      `(systemctl restart ssh || systemctl restart sshd || service ssh restart || service sshd restart); ` +
-
-      /*
-       * Verify the daemon is actually listening.
-       */
+      `systemctl enable ssh; ` +
+      `systemctl restart ssh; ` +
       `ss -lnt | grep -Eq "([.:])22[[:space:]]"; ` +
-
-      /*
-       * Verify the effective configuration rather than merely
-       * checking the configuration file we created.
-       */
-      `sshd -T | grep -Eq "^permitrootlogin yes$"; ` +
-      `sshd -T | grep -Eq "^passwordauthentication yes$"; ` +
-
-      /*
-       * --------------------------------------------------------
-       * REAL PASSWORD AUTHENTICATION TEST
-       * --------------------------------------------------------
-       *
-       * Use SSH_ASKPASS instead of sshpass so the VPS does not
-       * need an additional package merely for provisioning.
-       *
-       * The temporary askpass helper exists only during this
-       * authentication test and is removed automatically.
-       */
-      `ASKPASS=/run/shark-byte-ssh-askpass; ` +
-      `printf "%s\\\\n" "#!/bin/sh" "printf \\"%s\\" \\"${encodedPassword}\\" | base64 -d" > ${'${ASKPASS}'}; ` +
-      `chmod 700 ${'${ASKPASS}'}; ` +
-      `trap "rm -f ${'${ASKPASS}'}" EXIT; ` +
-
-      /*
-       * No TTY is allocated. SSH is forced to use ASKPASS.
-       */
-      `export DISPLAY=:0; ` +
-      `export SSH_ASKPASS=${'${ASKPASS}'}; ` +
-      `export SSH_ASKPASS_REQUIRE=force; ` +
-
-      `setsid -w ssh ` +
-      `-o StrictHostKeyChecking=no ` +
-      `-o UserKnownHostsFile=/dev/null ` +
-      `-o PreferredAuthentications=password ` +
-      `-o PubkeyAuthentication=no ` +
-      `-o KbdInteractiveAuthentication=no ` +
-      `-o PasswordAuthentication=yes ` +
-      `-o NumberOfPasswordPrompts=1 ` +
-      `-o ConnectTimeout=5 ` +
-      `-o LogLevel=ERROR ` +
-      `root@127.0.0.1 ` +
-      `"printf \\"SSH_PASSWORD_AUTH_VERIFIED\\\\n\\""; ` +
-
       `echo SSH_VERIFIED'`;
 
     const result =
@@ -928,20 +832,16 @@ export class IncusProvider
         120000,
       );
 
-    if (result.exitCode !== 0) {
-      throw new Error(
-        "SSH password authentication verification failed.\n" +
-        `${result.stderr || result.stdout || "No command output."}`,
-      );
-    }
-
     if (
-      !result.stdout.includes(
-        "SSH_PASSWORD_AUTH_VERIFIED",
-      )
+      result.exitCode !== 0
     ) {
       throw new Error(
-        "SSH server is listening, but the generated root password could not be verified through SSH.",
+        "Failed to install/configure SSH inside the VPS.\n" +
+          `${
+            result.stderr ||
+            result.stdout ||
+            "No command output."
+          }`,
       );
     }
 
@@ -951,12 +851,12 @@ export class IncusProvider
       )
     ) {
       throw new Error(
-        "SSH installation completed but final SSH verification did not complete.",
+        "SSH installation completed but TCP port 22 could not be verified.",
       );
     }
 
     console.log(
-      `[Incus] SSH password authentication verified on "${containerName}".`,
+      `[Incus] SSH verified on "${containerName}".`,
     );
   }
 

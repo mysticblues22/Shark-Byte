@@ -212,122 +212,29 @@ export async function provisionVpsOrder(
         ? `${storageGb} GB enforced`
         : `${storageGb} GB plan allocation (not enforced by current ${result.storageBackend} storage backend)`;
 
-    /*
-     * Credentials are PRIVATE.
-     *
-     * Never post the root password, SSH credentials, or other sensitive
-     * VPS connection information into the public ticket channel.
-     *
-     * The customer must receive these details through Discord DM.
-     */
-    const credentialsEmbed = new EmbedBuilder()
-      .setTitle("🔐 Shark Byte VPS Credentials")
-      .setColor(0x00a8ff)
+    const embed = new EmbedBuilder()
+      .setTitle("🚀 Shark Byte VPS Provisioned & Active")
+      .setColor(0x2ecc71)
       .setDescription(
-        `Your VPS has been successfully provisioned and is now active.\n\n` +
-        `━━━━━━━━━━━━━━━━━━━━\n` +
-        `🖥️ **VPS DETAILS**\n` +
-        `━━━━━━━━━━━━━━━━━━━━\n` +
-        `• **VPS:** #${vpsRecord.vpsNumber}\n` +
-        `• **OS:** ${os.displayName}\n` +
-        `• **Virtualization:** ${virtualizationMode === "nested" ? "Nested" : "Standard"}\n` +
-        `• **Hostname:** \`${hostname}\`\n` +
-        `• **Container:** \`${result.containerName}\`\n\n` +
-        `━━━━━━━━━━━━━━━━━━━━\n` +
-        `🔑 **SSH ACCESS**\n` +
-        `━━━━━━━━━━━━━━━━━━━━\n` +
-        `• **Host:** \`${publicSshHost}\`\n` +
-        `• **Port:** \`${publicSshPort}\`\n` +
-        `• **Username:** \`root\`\n` +
-        `• **Root Password:** ||\`${rootPassword}\`||\n\n` +
-        `**SSH Command:**\n` +
-        `\`ssh -p ${publicSshPort} root@${publicSshHost}\`\n\n` +
-        `━━━━━━━━━━━━━━━━━━━━\n` +
-        `⚙️ **RESOURCES**\n` +
-        `━━━━━━━━━━━━━━━━━━━━\n` +
-        `• **CPU:** ${vcpu} vCPU\n` +
-        `• **RAM:** ${ramGb} GB\n` +
-        `• **Storage:** ${storageNote}\n` +
-        `• **Private IP:** \`${result.privateIpv4 || "N/A"}\`\n\n` +
-        `⚠️ **Important:** Change the root password after your first login and keep these credentials private.`,
+        `Your VPS is ready.\n\n` +
+        `**VPS:** #${vpsRecord.vpsNumber}\n` +
+        `**OS:** ${os.displayName}\n` +
+        `**Virtualization:** ${virtualizationMode === "nested" ? "Nested" : "Standard"}\n` +
+        `**Hostname:** \`${hostname}\`\n` +
+        `**Container:** \`${result.containerName}\`\n` +
+        `**CPU:** ${vcpu} vCPU\n` +
+        `**RAM:** ${ramGb} GB\n` +
+        `**Storage:** ${storageNote}\n` +
+        `**Private IP:** \`${result.privateIpv4 || "N/A"}\`\n\n` +
+        `**SSH:** \`ssh -p ${publicSshPort} root@${publicSshHost}\`\n` +
+        `**Username:** \`root\`\n` +
+        `**Root Password:** \`${rootPassword}\`\n\n` +
+        `⚠️ Change the root password after first login.`,
       )
-      .setFooter({
-        text: "Shark Byte • Private VPS Credentials",
-      })
+      .setFooter({ text: "Shark Byte • VPS Deployment Engine" })
       .setTimestamp();
 
-    /*
-     * DM delivery is mandatory before the ticket can be automatically
-     * closed. If Discord blocks the DM, leave the ticket open so staff
-     * can help the customer instead of silently locking them out.
-     */
-    try {
-      await member.send({
-        embeds: [credentialsEmbed],
-      });
-
-      console.log(
-        `[VPS] Credentials DM sent successfully to ${member.user.tag} for ticket ${ticketId}.`,
-      );
-    } catch (dmError: any) {
-      console.error(
-        `[VPS] Failed to DM credentials to ${member.user.tag}:`,
-        dmError,
-      );
-
-      await logBotError({
-        guild,
-        error: dmError,
-        title: "VPS Credential DM Failed",
-        context: "provisionVpsOrder:credential_dm",
-        userTag: member.user.tag,
-        userId: member.user.id,
-        severity: "ERROR",
-      }).catch(() => {});
-
-      /*
-       * The VPS is already active, therefore this is NOT an infrastructure
-       * provisioning failure. Keep the VPS active and keep the ticket open.
-       */
-      if (channel) {
-        await channel.send({
-          content: `${member}`,
-          embeds: [
-            new EmbedBuilder()
-              .setTitle("⚠️ VPS Active — Credential DM Failed")
-              .setColor(0xf39c12)
-              .setDescription(
-                `Your VPS is active, but I could not send the private credentials to your Discord DM.\n\n` +
-                `Please **enable DMs from this server** and contact staff in this ticket so your credentials can be delivered securely.`,
-              )
-              .setTimestamp(),
-          ],
-        }).catch(() => {});
-      }
-
-      return;
-    }
-
-    /*
-     * Public ticket message contains NO credentials.
-     */
-    await channel.send({
-      content: `${member}`,
-      embeds: [
-        new EmbedBuilder()
-          .setTitle("🚀 VPS Provisioned Successfully")
-          .setColor(0x2ecc71)
-          .setDescription(
-            `Your VPS **#${vpsRecord.vpsNumber}** is now active.\n\n` +
-            `🔐 Your SSH credentials and connection details have been sent to you by **Discord DM**.\n\n` +
-            `Please check your DMs from Shark Byte.`,
-          )
-          .setFooter({
-            text: "Shark Byte • VPS Deployment Engine",
-          })
-          .setTimestamp(),
-      ],
-    });
+    await channel.send({ content: `${member}`, embeds: [embed] });
   } catch (error: any) {
     const reason = String(error?.message || error || "Unknown provisioning error");
     await updateVpsStatus(vpsRecord.id, "failed", { failureReason: reason }).catch(() => {});

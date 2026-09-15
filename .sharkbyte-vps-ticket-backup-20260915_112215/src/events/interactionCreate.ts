@@ -52,16 +52,7 @@ export async function handleInteraction(interaction: Interaction): Promise<void>
     }
 
     if (interaction.isButton()) {
-      if (interaction.customId.startsWith("vps:retry:")) {
-    await showOsSelectionScreen(
-      interaction,
-      interaction.customId.split(":")[2],
-      true,
-    );
-    return;
-  }
-
-  if (interaction.customId.startsWith("vps:os_back:")) {
+      if (interaction.customId.startsWith("vps:os_back:")) {
         await showOsSelectionScreen(interaction, interaction.customId.split(":")[2]);
         return;
       }

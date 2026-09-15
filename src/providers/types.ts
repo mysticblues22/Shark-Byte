@@ -22,6 +22,7 @@ export type VpsResourceRequest = {
 export type LxcProvisionRequest = {
   vpsNumber: number;
   containerName?: string;
+  customerUsername?: string;
   hostname: string;
   resources: VpsResourceRequest;
   templateDistribution?: string;
@@ -79,14 +80,44 @@ export type HostCapacity = {
 };
 
 export interface VpsProvider {
-  getContainerName(vpsNumber: number): string;
+  getContainerName(
+    vpsNumber: number,
+    customerUsername?: string,
+  ): string;
+
   getHostCapacity(): Promise<HostCapacity>;
-  containerExists(containerName: string): Promise<boolean>;
-  getContainerInfo(containerName: string): Promise<LxcContainerInfo>;
-  provision(request: LxcProvisionRequest): Promise<LxcProvisionResult>;
-  start(containerName: string): Promise<LxcContainerInfo>;
-  stop(containerName: string): Promise<LxcContainerInfo>;
-  restart(containerName: string): Promise<LxcContainerInfo>;
-  destroy(containerName: string): Promise<void>;
-  runInContainer(containerName: string, command: string, timeoutMs?: number): Promise<string>;
+
+  containerExists(
+    containerName: string,
+  ): Promise<boolean>;
+
+  getContainerInfo(
+    containerName: string,
+  ): Promise<LxcContainerInfo>;
+
+  provision(
+    request: LxcProvisionRequest,
+  ): Promise<LxcProvisionResult>;
+
+  start(
+    containerName: string,
+  ): Promise<LxcContainerInfo>;
+
+  stop(
+    containerName: string,
+  ): Promise<LxcContainerInfo>;
+
+  restart(
+    containerName: string,
+  ): Promise<LxcContainerInfo>;
+
+  destroy(
+    containerName: string,
+  ): Promise<void>;
+
+  runInContainer(
+    containerName: string,
+    command: string,
+    timeoutMs?: number,
+  ): Promise<string>;
 }
